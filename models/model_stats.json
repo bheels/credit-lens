@@ -1,0 +1,1 @@
+{"roc_auc": 0.9763, "avg_precision": 0.9035, "default_rate": 0.1756, "train_size": 717733, "test_size": 179434}
