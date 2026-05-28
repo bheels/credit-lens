@@ -1,140 +1,261 @@
 """
-SME Loan Default Risk Analyzer - Streamlit Web App
+CreditLens - SME loan default risk app.
 Run with: streamlit run app/streamlit_app.py
 """
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import joblib
 import json
-import shap
-import matplotlib.pyplot as plt
+
+import joblib
 import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import shap
+import streamlit as st
+
 matplotlib.use('Agg')
 
-# ─── Page Config ──────────────────────────────────────────────────────────────
+
+# ─── Page config ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
     page_title="CreditLens",
-    page_icon="🏦",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# ─── Custom Styling ───────────────────────────────────────────────────────────
 
-st.markdown("""
+# ─── Styling ──────────────────────────────────────────────────────────────────
+
+st.markdown(
+    """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
 
-    html, body, [class*="css"] {
-        font-family: 'IBM Plex Sans', sans-serif;
+    :root {
+        --ink:        #0f172a;
+        --ink-soft:   #334155;
+        --muted:      #64748b;
+        --hairline:   #e5e7eb;
+        --surface:    #ffffff;
+        --canvas:     #fafafa;
+        --accent:     #0f172a;
+        --red:        #dc2626;
+        --amber:      #d97706;
+        --green:      #16a34a;
     }
 
-    .main-title {
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 2.2rem;
+    html, body, [class*="css"], .stMarkdown, .stTextInput, .stNumberInput, .stSelectbox {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        color: var(--ink);
+    }
+
+    .stApp {
+        background-color: var(--canvas);
+    }
+
+    .block-container {
+        padding-top: 2.2rem;
+        padding-bottom: 3rem;
+        max-width: 1200px;
+    }
+
+    /* Header */
+    .brand {
+        font-family: 'Inter', sans-serif;
+        font-size: 2.1rem;
         font-weight: 600;
-        color: #0f172a;
-        letter-spacing: -1px;
-        margin-bottom: 0;
+        color: var(--ink);
+        letter-spacing: -0.02em;
+        margin: 0;
+        line-height: 1.1;
+    }
+
+    .brand-tag {
+        display: inline-block;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.7rem;
+        font-weight: 500;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        margin-left: 0.85rem;
+        vertical-align: 0.32rem;
     }
 
     .subtitle {
         font-size: 1rem;
-        color: #64748b;
-        margin-bottom: 2rem;
+        color: var(--muted);
+        margin: 0.4rem 0 2rem;
+        font-weight: 400;
     }
 
-    .risk-score-box {
-        border-radius: 12px;
-        padding: 2rem;
+    /* Section labels */
+    .section-header {
+        font-family: 'Inter', sans-serif;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--ink-soft);
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        margin: 2rem 0 1rem;
+    }
+
+    /* Risk score card */
+    .risk-card {
+        background: var(--surface);
+        border: 1px solid var(--hairline);
+        border-radius: 14px;
+        padding: 1.75rem 1.5rem;
         text-align: center;
-        margin-bottom: 1.5rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        transition: box-shadow 0.25s ease;
     }
 
-    .risk-high   { background: #fef2f2; border: 2px solid #ef4444; }
-    .risk-medium { background: #fffbeb; border: 2px solid #f59e0b; }
-    .risk-low    { background: #f0fdf4; border: 2px solid #22c55e; }
+    .risk-card:hover {
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.07);
+    }
 
-    .risk-score-number {
+    .risk-card.risk-high   { border-top: 3px solid var(--red); }
+    .risk-card.risk-medium { border-top: 3px solid var(--amber); }
+    .risk-card.risk-low    { border-top: 3px solid var(--green); }
+
+    .risk-score {
         font-family: 'IBM Plex Mono', monospace;
-        font-size: 3.5rem;
-        font-weight: 700;
+        font-size: 3.4rem;
+        font-weight: 600;
         line-height: 1;
+        letter-spacing: -0.02em;
     }
 
     .risk-label {
-        font-size: 1.1rem;
+        font-size: 0.95rem;
         font-weight: 600;
-        margin-top: 0.5rem;
+        margin-top: 0.65rem;
+        letter-spacing: 0.02em;
     }
 
-    .metric-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 1rem;
-        text-align: center;
+    .risk-caption {
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin-top: 0.4rem;
     }
 
-    .metric-value {
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 1.5rem;
+    /* Factor rows */
+    .factor-row {
+        margin-bottom: 0.85rem;
+    }
+    .factor-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 4px;
+    }
+    .factor-name {
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: var(--ink);
+    }
+    .factor-dir {
+        font-size: 0.78rem;
         font-weight: 600;
-        color: #0f172a;
+    }
+    .factor-bar {
+        background: #f1f5f9;
+        border-radius: 999px;
+        height: 6px;
+        overflow: hidden;
+    }
+    .factor-bar-fill {
+        height: 6px;
+        border-radius: 999px;
+        transition: width 0.4s ease;
     }
 
-    .metric-label {
-        font-size: 0.8rem;
-        color: #94a3b8;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+    /* Summary list */
+    .summary-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.55rem 0;
+        border-bottom: 1px solid var(--hairline);
+        font-size: 0.93rem;
     }
-
-    .factor-positive { color: #ef4444; }
-    .factor-negative { color: #22c55e; }
-
-    .section-header {
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: #94a3b8;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        margin: 1.5rem 0 0.75rem;
-        border-bottom: 1px solid #e2e8f0;
-        padding-bottom: 0.4rem;
+    .summary-row:last-child {
+        border-bottom: none;
     }
+    .summary-key { color: var(--muted); }
+    .summary-val { color: var(--ink); font-weight: 500; }
 
+    /* Button */
     .stButton>button {
-        background: #0f172a;
+        background: var(--accent);
         color: white;
         border: none;
-        border-radius: 8px;
-        padding: 0.6rem 2rem;
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 0.9rem;
-        font-weight: 600;
+        border-radius: 10px;
+        padding: 0.7rem 2rem;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.95rem;
+        font-weight: 500;
         width: 100%;
-        transition: background 0.2s;
+        letter-spacing: 0.01em;
+        transition: background 0.2s ease, transform 0.05s ease, box-shadow 0.2s ease;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
     }
-
     .stButton>button:hover {
-        background: #1e3a5f;
+        background: #1e293b;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
     }
+    .stButton>button:active {
+        transform: translateY(1px);
+    }
+
+    /* Sidebar polish */
+    section[data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid var(--hairline);
+    }
+    section[data-testid="stSidebar"] h3 {
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--ink-soft);
+        margin-top: 1.2rem;
+    }
+
+    /* Inputs */
+    .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
+        border-radius: 8px;
+    }
+
+    /* Hide Streamlit chrome */
+    #MainMenu, footer { visibility: hidden; }
+
+    /* Footer */
+    .footer {
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.8rem;
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--hairline);
+    }
+    .footer a { color: var(--muted); text-decoration: none; }
+    .footer a:hover { color: var(--ink); }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
-# ─── Load Model & Artifacts ───────────────────────────────────────────────────
+# ─── Load model + artifacts ───────────────────────────────────────────────────
 
 @st.cache_resource
 def load_model():
     model = joblib.load('models/xgb_loan_default.pkl')
     explainer = joblib.load('models/shap_explainer.pkl')
     return model, explainer
+
 
 @st.cache_data
 def load_artifacts():
@@ -147,7 +268,7 @@ def load_artifacts():
     return features, state_map, stats
 
 
-# ─── Industry Mapping ─────────────────────────────────────────────────────────
+# ─── Reference data ───────────────────────────────────────────────────────────
 
 NAICS_MAP = {
     'Agriculture / Forestry / Fishing': 11,
@@ -172,13 +293,39 @@ NAICS_MAP = {
     'Public Administration': 92,
 }
 
+FRIENDLY_NAMES = {
+    'Term': 'Loan Term',
+    'SBA_GuaranteeRatio': 'SBA Guarantee %',
+    'GrAppv': 'Loan Amount',
+    'IsNewBusiness': 'New Business',
+    'NAICSCode': 'Industry',
+    'LowDoc': 'Low Documentation',
+    'NoEmp': 'Employees',
+    'LoanPerJob': 'Loan Per Job',
+    'StateEncoded': 'State',
+    'DisbursementRatio': 'Disbursement Ratio',
+    'TotalJobs': 'Total Jobs',
+    'IsFranchise': 'Franchise',
+    'RevLineCr': 'Revolving Credit',
+    'CreateJob': 'Jobs Created',
+    'RetainedJob': 'Jobs Retained',
+}
+
 
 # ─── Header ───────────────────────────────────────────────────────────────────
 
-st.markdown('<p class="main-title">🏦 CreditLens</p>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Machine learning-powered SME credit risk scoring with SHAP explainability</p>', unsafe_allow_html=True)
+st.markdown(
+    '<h1 class="brand">CreditLens<span class="brand-tag">SBA risk model</span></h1>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<p class="subtitle">Estimate the probability a small-business loan defaults, '
+    'and see which loan attributes drove the score.</p>',
+    unsafe_allow_html=True,
+)
 
-# ─── Try Loading Model ────────────────────────────────────────────────────────
+
+# ─── Model load ───────────────────────────────────────────────────────────────
 
 try:
     model, explainer = load_model()
@@ -186,20 +333,16 @@ try:
     model_loaded = True
 except Exception as e:
     model_loaded = False
-    st.warning(f"""
-    **Model not found.** Run the notebooks first to train and save the model:
-    1. `notebooks/01_data_exploration.ipynb`
-    2. `notebooks/02_feature_engineering.ipynb`
-    3. `notebooks/03_model_training.ipynb`
-
-    Error: `{e}`
-    """)
+    st.warning(
+        "Model artifacts not found. Run the notebooks in `notebooks/` to "
+        f"train and save the model first.\n\nError: `{e}`"
+    )
 
 
-# ─── Sidebar: Model Stats ─────────────────────────────────────────────────────
+# ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown("### About CreditLens")
+    st.markdown("### Model")
     if model_loaded:
         col1, col2 = st.columns(2)
         with col1:
@@ -207,64 +350,70 @@ with st.sidebar:
         with col2:
             st.metric("Avg Precision", f"{stats['avg_precision']:.3f}")
 
-        st.markdown(f"""
-        **Algorithm:** XGBoost Classifier  
-        **Training samples:** {stats['train_size']:,}  
-        **Test samples:** {stats['test_size']:,}  
-        **Historical default rate:** {stats['default_rate']:.1%}
-        """)
+        st.markdown(
+            f"""
+<div style="font-size:0.88rem;color:var(--ink-soft);line-height:1.7;margin-top:0.6rem">
+<span style="color:var(--muted)">Algorithm</span> &nbsp; XGBoost classifier<br>
+<span style="color:var(--muted)">Training rows</span> &nbsp; {stats['train_size']:,}<br>
+<span style="color:var(--muted)">Test rows</span> &nbsp; {stats['test_size']:,}<br>
+<span style="color:var(--muted)">Default rate</span> &nbsp; {stats['default_rate']:.1%}
+</div>
+""",
+            unsafe_allow_html=True,
+        )
 
-    st.markdown("---")
-    st.markdown("### What is this?")
-    st.markdown("""
-    This tool predicts the probability that a small business loan will default, 
-    based on 900,000+ real SBA-backed loans.
+    st.markdown("### About")
+    st.markdown(
+        "Trained on roughly 900,000 SBA-backed loans. Each prediction comes with "
+        "SHAP values, so you can see which loan attributes pushed the score up or down."
+    )
 
-    **SHAP values** explain *why* each score was given — which factors increase 
-    or decrease risk.
-    """)
-
-    st.markdown("---")
-    st.markdown("### Data Source")
-    st.markdown("[SBA Loan Dataset on Kaggle](https://www.kaggle.com/datasets/mirbektoktogaraev/should-this-loan-be-approved-or-denied)")
+    st.markdown("### Data")
+    st.markdown(
+        "[SBA national loan dataset on Kaggle]"
+        "(https://www.kaggle.com/datasets/mirbektoktogaraev/should-this-loan-be-approved-or-denied)"
+    )
 
 
-# ─── Input Form ───────────────────────────────────────────────────────────────
+# ─── Input form ───────────────────────────────────────────────────────────────
 
-st.markdown('<p class="section-header">Loan Details</p>', unsafe_allow_html=True)
+st.markdown('<p class="section-header">Loan details</p>', unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3 = st.columns(3, gap="large")
 
 with col1:
     loan_amount = st.number_input(
-        "Loan Amount ($)", min_value=1000, max_value=5_000_000,
-        value=150_000, step=5_000, format="%d"
+        "Loan amount ($)",
+        min_value=1000, max_value=5_000_000,
+        value=150_000, step=5_000, format="%d",
     )
-    term = st.slider("Loan Term (months)", min_value=12, max_value=360, value=84, step=12)
-    sba_guarantee = st.slider("SBA Guarantee %", min_value=0, max_value=100, value=75)
+    term = st.slider("Loan term (months)", min_value=12, max_value=360, value=84, step=12)
+    sba_guarantee = st.slider("SBA guarantee (%)", min_value=0, max_value=100, value=75)
 
 with col2:
     industry = st.selectbox("Industry", options=list(NAICS_MAP.keys()))
-    state = st.selectbox("State", options=sorted(state_map.keys()))
-    is_new = st.radio("Business Type", ["Existing Business", "New Business"], horizontal=True)
+    if model_loaded:
+        state = st.selectbox("State", options=sorted(state_map.keys()))
+    else:
+        state = st.selectbox("State", options=["CA", "TX", "NY", "FL"])
+    is_new = st.radio("Business type", ["Existing business", "New business"], horizontal=True)
 
 with col3:
-    employees = st.number_input("Number of Employees", min_value=0, max_value=500, value=10)
-    jobs_created = st.number_input("Jobs Created", min_value=0, max_value=200, value=2)
-    jobs_retained = st.number_input("Jobs Retained", min_value=0, max_value=200, value=8)
-    is_franchise = st.checkbox("Is a franchise?")
-    low_doc = st.checkbox("Low documentation loan?")
-    rev_line = st.checkbox("Revolving line of credit?")
+    employees = st.number_input("Number of employees", min_value=0, max_value=500, value=10)
+    jobs_created = st.number_input("Jobs created", min_value=0, max_value=200, value=2)
+    jobs_retained = st.number_input("Jobs retained", min_value=0, max_value=200, value=8)
+    is_franchise = st.checkbox("Franchise")
+    low_doc = st.checkbox("Low documentation loan")
+    rev_line = st.checkbox("Revolving line of credit")
 
-st.markdown("")
-predict_btn = st.button("⚡  Analyze Loan Risk")
+st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+predict_btn = st.button("Analyze loan risk")
 
 
 # ─── Prediction ───────────────────────────────────────────────────────────────
 
 if predict_btn and model_loaded:
 
-    # Build feature vector
     sba_appv = loan_amount * (sba_guarantee / 100)
     total_jobs = jobs_created + jobs_retained
     loan_per_job = loan_amount / max(total_jobs, 1)
@@ -284,7 +433,7 @@ if predict_btn and model_loaded:
         'SBA_GuaranteeRatio': sba_guarantee / 100,
         'DisbursementRatio': 1.0,
         'LoanPerJob': min(loan_per_job, 500_000),
-        'IsNewBusiness': int(is_new == "New Business"),
+        'IsNewBusiness': int(is_new == "New business"),
         'IsFranchise': int(is_franchise),
         'NAICSCode': NAICS_MAP[industry],
         'StateEncoded': state_map.get(state, 0),
@@ -292,146 +441,142 @@ if predict_btn and model_loaded:
     }
 
     input_df = pd.DataFrame([input_data])[features]
-    risk_score = model.predict_proba(input_df)[0][1]
+    risk_score = float(model.predict_proba(input_df)[0][1])
 
-    # ─── Risk Display ─────────────────────────────────────────────────────────
+    # Risk band
+    if risk_score >= 0.6:
+        risk_class, risk_label, risk_color = "risk-high", "High risk", "var(--red)"
+    elif risk_score >= 0.35:
+        risk_class, risk_label, risk_color = "risk-medium", "Medium risk", "var(--amber)"
+    else:
+        risk_class, risk_label, risk_color = "risk-low", "Low risk", "var(--green)"
 
-    st.markdown("---")
-    st.markdown('<p class="section-header">Risk Assessment</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-header">Risk assessment</p>', unsafe_allow_html=True)
 
-    result_col, explain_col = st.columns([1, 2])
+    result_col, explain_col = st.columns([1, 2], gap="large")
 
     with result_col:
-        if risk_score >= 0.6:
-            risk_class = "risk-high"
-            risk_label = "🔴 High Risk"
-            risk_color = "#ef4444"
-        elif risk_score >= 0.35:
-            risk_class = "risk-medium"
-            risk_label = "🟡 Medium Risk"
-            risk_color = "#f59e0b"
-        else:
-            risk_class = "risk-low"
-            risk_label = "🟢 Low Risk"
-            risk_color = "#22c55e"
+        st.markdown(
+            f"""
+<div class="risk-card {risk_class}">
+    <div class="risk-score" style="color:{risk_color}">{risk_score:.0%}</div>
+    <div class="risk-label" style="color:{risk_color}">{risk_label}</div>
+    <div class="risk-caption">Probability of default</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
 
-        st.markdown(f"""
-        <div class="risk-score-box {risk_class}">
-            <div class="risk-score-number" style="color:{risk_color}">{risk_score:.0%}</div>
-            <div class="risk-label">{risk_label}</div>
-            <div style="font-size:0.85rem;color:#64748b;margin-top:0.5rem">Probability of Default</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Benchmark
         baseline = stats['default_rate']
         rel_risk = risk_score / baseline
-        st.info(f"**{rel_risk:.1f}x** the historical average default rate ({baseline:.1%})")
-
-    # ─── SHAP Explanation ─────────────────────────────────────────────────────
+        st.markdown(
+            f"<div style='margin-top:1rem;font-size:0.88rem;color:var(--ink-soft);"
+            f"text-align:center;line-height:1.55'>"
+            f"<span style='font-family:IBM Plex Mono,monospace;font-weight:600;color:var(--ink)'>{rel_risk:.1f}×</span> "
+            f"the historical average default rate of {baseline:.1%}.</div>",
+            unsafe_allow_html=True,
+        )
 
     with explain_col:
-        st.markdown("**Why this score?** Top contributing factors:")
+        st.markdown(
+            "<div style='font-size:0.95rem;font-weight:500;margin-bottom:0.85rem;color:var(--ink)'>"
+            "Top contributing factors</div>",
+            unsafe_allow_html=True,
+        )
 
         shap_vals = explainer.shap_values(input_df)[0]
         feature_impact = pd.DataFrame({
             'Feature': features,
             'Value': input_df.values[0],
-            'SHAP': shap_vals
+            'SHAP': shap_vals,
         }).sort_values('SHAP', key=abs, ascending=False).head(8)
 
-        # Friendly feature name map
-        friendly_names = {
-            'Term': 'Loan Term',
-            'SBA_GuaranteeRatio': 'SBA Guarantee %',
-            'GrAppv': 'Loan Amount',
-            'IsNewBusiness': 'New Business',
-            'NAICSCode': 'Industry',
-            'LowDoc': 'Low Documentation',
-            'NoEmp': 'Employees',
-            'LoanPerJob': 'Loan Per Job',
-            'StateEncoded': 'State',
-            'DisbursementRatio': 'Disbursement Ratio',
-            'TotalJobs': 'Total Jobs',
-            'IsFranchise': 'Franchise',
-            'RevLineCr': 'Revolving Credit',
-            'CreateJob': 'Jobs Created',
-            'RetainedJob': 'Jobs Retained',
-        }
-
         for _, row in feature_impact.iterrows():
-            fname = friendly_names.get(row['Feature'], row['Feature'])
-            direction = "↑ Increases risk" if row['SHAP'] > 0 else "↓ Decreases risk"
-            color = "#ef4444" if row['SHAP'] > 0 else "#22c55e"
-            bar_width = min(abs(row['SHAP']) * 100 * 3, 100)
+            fname = FRIENDLY_NAMES.get(row['Feature'], row['Feature'])
+            increases = row['SHAP'] > 0
+            direction = "Increases risk" if increases else "Decreases risk"
+            color = "var(--red)" if increases else "var(--green)"
+            bar_width = min(abs(row['SHAP']) * 300, 100)
 
-            st.markdown(f"""
-            <div style="margin-bottom:0.6rem;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                    <span style="font-size:0.9rem;font-weight:500">{fname}</span>
-                    <span style="font-size:0.8rem;color:{color};font-weight:600">{direction}</span>
-                </div>
-                <div style="background:#e2e8f0;border-radius:4px;height:6px;">
-                    <div style="background:{color};width:{bar_width}%;height:6px;border-radius:4px;"></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f"""
+<div class="factor-row">
+    <div class="factor-meta">
+        <span class="factor-name">{fname}</span>
+        <span class="factor-dir" style="color:{color}">{direction}</span>
+    </div>
+    <div class="factor-bar">
+        <div class="factor-bar-fill" style="background:{color};width:{bar_width}%"></div>
+    </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
 
-    # ─── SHAP Waterfall Plot ──────────────────────────────────────────────────
+    # SHAP waterfall
+    st.markdown('<p class="section-header">Full SHAP breakdown</p>', unsafe_allow_html=True)
 
-    st.markdown('<p class="section-header">SHAP Waterfall — Full Breakdown</p>', unsafe_allow_html=True)
+    shap_display = pd.DataFrame({
+        'Feature': [FRIENDLY_NAMES.get(f, f) for f in features],
+        'SHAP Value': shap_vals,
+    }).sort_values('SHAP Value', key=abs, ascending=True).tail(12)
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    shap_display = pd.DataFrame({
-        'Feature': [friendly_names.get(f, f) for f in features],
-        'SHAP Value': shap_vals
-    }).sort_values('SHAP Value').tail(12)
-
-    colors = ['#ef4444' if v > 0 else '#22c55e' for v in shap_display['SHAP Value']]
-    ax.barh(shap_display['Feature'], shap_display['SHAP Value'], color=colors)
-    ax.axvline(0, color='black', linewidth=0.8)
-    ax.set_xlabel('SHAP Value (impact on default probability)')
-    ax.set_title('Feature Impact on This Prediction', fontsize=12, fontweight='bold')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
+    colors = ['#dc2626' if v > 0 else '#16a34a' for v in shap_display['SHAP Value']]
+    ax.barh(shap_display['Feature'], shap_display['SHAP Value'], color=colors, height=0.65)
+    ax.axvline(0, color='#cbd5e1', linewidth=0.8)
+    ax.set_xlabel('SHAP value (impact on default probability)', fontsize=10, color='#475569')
+    ax.tick_params(axis='both', colors='#475569', labelsize=10)
+    for side in ('top', 'right', 'left'):
+        ax.spines[side].set_visible(False)
+    ax.spines['bottom'].set_color('#cbd5e1')
+    ax.grid(axis='x', color='#f1f5f9', linewidth=0.7)
+    ax.set_axisbelow(True)
+    fig.patch.set_facecolor('#fafafa')
+    ax.set_facecolor('#fafafa')
     plt.tight_layout()
     st.pyplot(fig)
     plt.close()
 
-    # ─── Loan Summary Table ───────────────────────────────────────────────────
+    # Summary
+    st.markdown('<p class="section-header">Loan summary</p>', unsafe_allow_html=True)
 
-    st.markdown('<p class="section-header">Loan Summary</p>', unsafe_allow_html=True)
+    summary = [
+        ("Loan amount", f"${loan_amount:,}"),
+        ("SBA guaranteed", f"${sba_appv:,.0f} ({sba_guarantee}%)"),
+        ("Term", f"{term} months ({term // 12} years)"),
+        ("Industry", industry),
+        ("State", state),
+        ("Employees", f"{employees:,}"),
+        ("Total jobs", f"{total_jobs:,}"),
+        ("Business type", is_new),
+        ("Risk score", f"{risk_score:.1%}"),
+        ("Risk level", risk_label),
+    ]
 
-    summary = {
-        "Loan Amount": f"${loan_amount:,}",
-        "SBA Guaranteed": f"${sba_appv:,.0f} ({sba_guarantee}%)",
-        "Term": f"{term} months ({term//12} years)",
-        "Industry": industry,
-        "State": state,
-        "Employees": employees,
-        "Total Jobs": total_jobs,
-        "Business Type": is_new,
-        "Risk Score": f"{risk_score:.1%}",
-        "Risk Level": risk_label,
-    }
-
-    col_a, col_b = st.columns(2)
-    items = list(summary.items())
-    for i, (k, v) in enumerate(items):
-        (col_a if i % 2 == 0 else col_b).markdown(f"**{k}:** {v}")
+    col_a, col_b = st.columns(2, gap="large")
+    half = (len(summary) + 1) // 2
+    for col, items in ((col_a, summary[:half]), (col_b, summary[half:])):
+        rows = "".join(
+            f"<div class='summary-row'><span class='summary-key'>{k}</span>"
+            f"<span class='summary-val'>{v}</span></div>"
+            for k, v in items
+        )
+        col.markdown(rows, unsafe_allow_html=True)
 
 
 elif predict_btn and not model_loaded:
-    st.error("Please train the model first by running the three notebooks in order.")
+    st.error("Train the model first by running the three notebooks in order.")
 
 
 # ─── Footer ───────────────────────────────────────────────────────────────────
 
-st.markdown("---")
-st.markdown("""
-<div style="text-align:center;color:#94a3b8;font-size:0.8rem;">
-    CreditLens · Built with XGBoost · SHAP · Streamlit · 
-    <a href="https://www.kaggle.com/datasets/mirbektoktogaraev/should-this-loan-be-approved-or-denied" 
-       style="color:#94a3b8">SBA Loan Dataset</a>
+st.markdown(
+    """
+<div class="footer">
+    CreditLens &middot; XGBoost &middot; SHAP &middot; Streamlit
+    &middot; <a href="https://www.kaggle.com/datasets/mirbektoktogaraev/should-this-loan-be-approved-or-denied">SBA loan dataset</a>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
